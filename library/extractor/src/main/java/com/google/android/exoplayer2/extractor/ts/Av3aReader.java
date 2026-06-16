@@ -35,6 +35,32 @@ import com.google.android.exoplayer2.util.ParsableByteArray;
 @Deprecated
 public final class Av3aReader implements ElementaryStreamReader {
 
+  // AV3A sampling_freq_id -> sample rate (AVS3 P3 spec Table)
+  private static final int[] SAMPLE_RATE_TABLE = {
+    192000, 96000, 48000, 44100, 32000, 22050, 16000, 11025, 8000, 0, 0, 0, 0, 0, 0, 0
+  };
+
+  // AV3A channel_number_index -> channel count (AVS3 P3 spec Table)
+  private static final int[] CHANNEL_COUNT_TABLE = {
+    0,  // 0: reserved
+    1,  // 1: Mono
+    2,  // 2: Stereo
+    3,  // 3: 3.0
+    4,  // 4: Quad
+    5,  // 5: 5.0
+    6,  // 6: 5.1
+    7,  // 7: 7.0
+    8,  // 8: 7.1
+    10, // 9: 5.1.4 (10ch)
+    10, // 10: 7.1.2 (10ch)
+    12, // 11: 7.1.4 (12ch)
+    16, // 12: HOA order3 (16ch)
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  };
+
+  // Samples per frame for AV3A (fixed at 2048 per AVS3 spec)
+  private static final int SAMPLES_PER_FRAME = 2048;
+
   private static final int HEADER_SIZE = 7;
 
   private static final int STATE_FINDING_SYNC = 0;
@@ -50,6 +76,11 @@ public final class Av3aReader implements ElementaryStreamReader {
   private int frameSize;
   private boolean hasOutputFormat;
 
+  // Parsed from frame header
+  private int sampleRate;
+  private int channelCount;
+  private long frameDurationUs;
+
   private final ParsableByteArray headerScratch;
   private final ParsableBitArray headerBitArray;
 
@@ -59,6 +90,9 @@ public final class Av3aReader implements ElementaryStreamReader {
     headerBitArray = new ParsableBitArray();
     state = STATE_FINDING_SYNC;
     timeUs = C.TIME_UNSET;
+    sampleRate = 44100; // safe default
+    channelCount = 2;   // safe default
+    frameDurationUs = (SAMPLES_PER_FRAME * 1_000_000L) / sampleRate;
   }
 
   @Override
@@ -96,8 +130,8 @@ public final class Av3aReader implements ElementaryStreamReader {
           bytesRead += bytesToRead;
           if (bytesRead == HEADER_SIZE) {
             headerBitArray.reset(headerScratch.getData());
-            frameSize = parseFrameSize(headerBitArray);
-            if (frameSize <= 0) {
+            if (!parseHeader(headerBitArray)) {
+              // Invalid header, restart sync search
               state = STATE_FINDING_SYNC;
               bytesRead = 0;
               break;
@@ -105,6 +139,7 @@ public final class Av3aReader implements ElementaryStreamReader {
             if (!hasOutputFormat) {
               outputFormat();
             }
+            // Write header bytes to output (downstream decoder needs full frame incl. header)
             output.sampleData(
                 new ParsableByteArray(headerScratch.getData(), HEADER_SIZE), HEADER_SIZE);
             state = STATE_READING_SAMPLE;
@@ -118,7 +153,8 @@ public final class Av3aReader implements ElementaryStreamReader {
           if (bytesRead == frameSize) {
             if (timeUs != C.TIME_UNSET) {
               output.sampleMetadata(timeUs, C.BUFFER_FLAG_KEY_FRAME, frameSize, 0, null);
-              timeUs += 46440;
+              // Dynamically advance timestamp based on actual sample rate
+              timeUs += frameDurationUs;
             }
             state = STATE_FINDING_SYNC;
             bytesRead = 0;
@@ -135,6 +171,14 @@ public final class Av3aReader implements ElementaryStreamReader {
     // do nothing
   }
 
+  // ---------------------------------------------------------------------------
+  // Private helpers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Advances data until a potential AV3A sync word (0xFFF) is found.
+   * Returns true if sync found; headerScratch[0..1] will contain the sync bytes.
+   */
   private boolean skipToNextSync(ParsableByteArray data) {
     byte[] buf = data.getData();
     int pos = data.getPosition();
@@ -153,21 +197,63 @@ public final class Av3aReader implements ElementaryStreamReader {
     return false;
   }
 
-  private int parseFrameSize(ParsableBitArray bits) {
-    try {
-      bits.skipBits(12); // syncword
-      bits.skipBits(4);  // audio_codec_id
-      bits.skipBits(3);  // anc_data_index
-      bits.skipBits(3);  // nn_type
-      bits.skipBits(2);  // coding_profile
-      bits.skipBits(4);  // sampling_freq_id
-      bits.skipBits(7);  // channel_number_index
-      bits.skipBits(2);  // resolution
-      int frameLength = bits.readBits(16);
-      return frameLength > 0 ? frameLength : -1;
-    } catch (Exception e) {
-      return -1;
+  /**
+   * Parses AV3A frame header from the 7-byte scratch buffer.
+   * Populates frameSize, sampleRate, channelCount, frameDurationUs.
+   *
+   * AVS3 Audio (P3) frame header bit layout:
+   *   syncword         12 bits  (0xFFF, already matched)
+   *   audio_codec_id    4 bits
+   *   anc_data_index    3 bits
+   *   nn_type           3 bits
+   *   coding_profile    2 bits
+   *   sampling_freq_id  4 bits
+   *   channel_number_index 7 bits
+   *   resolution        2 bits
+   *   frame_length     16 bits  (total frame bytes incl. header)
+   *
+   * Total bits consumed: 12+4+3+3+2+4+7+2+16 = 53 bits (< 56 bits = 7 bytes) ✓
+   *
+   * @return true if header is valid, false otherwise.
+   */
+  private boolean parseHeader(ParsableBitArray bits) {
+    // Validate we have enough bits: 7 bytes = 56 bits, we need 53
+    if (bits.bitsLeft() < 53) {
+      return false;
     }
+
+    bits.skipBits(12); // syncword (already validated in skipToNextSync)
+    bits.skipBits(4);  // audio_codec_id
+    bits.skipBits(3);  // anc_data_index
+    bits.skipBits(3);  // nn_type
+    bits.skipBits(2);  // coding_profile
+
+    int samplingFreqId = bits.readBits(4);
+    int channelNumberIndex = bits.readBits(7);
+    bits.skipBits(2);  // resolution
+    int frameLength = bits.readBits(16);
+
+    if (frameLength <= 0) {
+      return false;
+    }
+
+    // Map sampling_freq_id to sample rate
+    if (samplingFreqId >= SAMPLE_RATE_TABLE.length || SAMPLE_RATE_TABLE[samplingFreqId] == 0) {
+      return false;
+    }
+    sampleRate = SAMPLE_RATE_TABLE[samplingFreqId];
+
+    // Map channel_number_index to channel count
+    if (channelNumberIndex >= CHANNEL_COUNT_TABLE.length
+        || CHANNEL_COUNT_TABLE[channelNumberIndex] == 0) {
+      return false;
+    }
+    channelCount = CHANNEL_COUNT_TABLE[channelNumberIndex];
+
+    // Dynamic frame duration based on actual sample rate
+    frameDurationUs = (SAMPLES_PER_FRAME * 1_000_000L) / sampleRate;
+    frameSize = frameLength;
+    return true;
   }
 
   private void outputFormat() {
@@ -178,6 +264,8 @@ public final class Av3aReader implements ElementaryStreamReader {
         new Format.Builder()
             .setSampleMimeType(MimeTypes.AUDIO_AV3A)
             .setLanguage(language)
+            .setSampleRate(sampleRate)
+            .setChannelCount(channelCount)
             .build();
     output.format(format);
     hasOutputFormat = true;
