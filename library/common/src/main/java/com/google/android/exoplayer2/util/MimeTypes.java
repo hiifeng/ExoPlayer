@@ -106,6 +106,8 @@ public final class MimeTypes {
 
   public static final String AUDIO_EXOPLAYER_MIDI = BASE_TYPE_AUDIO + "/x-exoplayer-midi";
 
+  public static final String AUDIO_AV3A = BASE_TYPE_AUDIO + "/av3a";
+
   public static final String AUDIO_UNKNOWN = BASE_TYPE_AUDIO + "/x-unknown";
 
   // text/ MIME types
