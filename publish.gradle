@@ -19,7 +19,12 @@ afterEvaluate {
     publishing {
         repositories {
             maven {
-                url = findProperty('mavenRepo') ?: "${buildDir}/repo"
+                name = "GitHubPackages"
+                url = uri("https://maven.pkg.github.com/hiifeng/ExoPlayer")
+                credentials {
+                    username = findProperty('mavenUser') ?: System.getenv('GITHUB_ACTOR')
+                    password = findProperty('mavenPassword') ?: System.getenv('GITHUB_TOKEN')
+                }
             }
         }
         publications {
