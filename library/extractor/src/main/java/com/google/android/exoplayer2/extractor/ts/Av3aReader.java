@@ -20,11 +20,9 @@ import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.Format;
 import com.google.android.exoplayer2.extractor.ExtractorOutput;
 import com.google.android.exoplayer2.extractor.TrackOutput;
-import com.google.android.exoplayer2.extractor.ts.TsPayloadReader.TrackIdGenerator;
 import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.android.exoplayer2.util.ParsableBitArray;
 import com.google.android.exoplayer2.util.ParsableByteArray;
-import com.google.android.exoplayer2.util.TimestampAdjuster;
 
 /**
  * Parses a continuous AV3A byte stream and extracts individual audio frames.
@@ -44,8 +42,6 @@ public final class Av3aReader implements ElementaryStreamReader {
   private static final int STATE_READING_SAMPLE = 2;
 
   @Nullable private final String language;
-
-  @Nullable private TimestampAdjuster timestampAdjuster;
   @Nullable private TrackOutput output;
 
   private int state;
@@ -73,27 +69,15 @@ public final class Av3aReader implements ElementaryStreamReader {
   }
 
   @Override
-  public void createTracks(ExtractorOutput extractorOutput, TrackIdGenerator idGenerator) {
+  public void createTracks(ExtractorOutput extractorOutput, PesReader.TrackIdGenerator idGenerator) {
     idGenerator.generateNewId();
     output = extractorOutput.track(idGenerator.getTrackId(), C.TRACK_TYPE_AUDIO);
   }
 
   @Override
-  public void init(
-      TimestampAdjuster timestampAdjuster,
-      ExtractorOutput extractorOutput,
-      TrackIdGenerator idGenerator) {
-    this.timestampAdjuster = timestampAdjuster;
-    createTracks(extractorOutput, idGenerator);
-  }
-
-  @Override
   public void packetStarted(long pesTimeUs, @TsPayloadReader.Flags int flags) {
     if (pesTimeUs != C.TIME_UNSET) {
-      timeUs =
-          timestampAdjuster != null
-              ? timestampAdjuster.adjustTsTimestamp(pesTimeUs)
-              : pesTimeUs;
+      timeUs = pesTimeUs;
     }
   }
 
@@ -150,10 +134,6 @@ public final class Av3aReader implements ElementaryStreamReader {
   public void packetFinished() {
     // do nothing
   }
-
-  // ---------------------------------------------------------------------------
-  // Private helpers
-  // ---------------------------------------------------------------------------
 
   private boolean skipToNextSync(ParsableByteArray data) {
     byte[] buf = data.getData();
