@@ -658,7 +658,7 @@ public final class TsExtractor implements Extractor {
         pmtScratch.skipBits(4); // reserved
         int esInfoLength = pmtScratch.readBits(12); // ES_info_length.
         EsInfo esInfo = readEsInfo(sectionData, esInfoLength);
-        if (streamType == 0x06 || streamType == 0x05) {
+        if ((streamType == 0x06 || streamType == 0x05) && esInfo.streamType != -1) {
           streamType = esInfo.streamType;
         }
         remainingEntriesLength -= esInfoLength + 5;
