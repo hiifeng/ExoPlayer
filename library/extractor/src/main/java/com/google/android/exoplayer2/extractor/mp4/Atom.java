@@ -412,6 +412,12 @@ import java.util.List;
   public static final int TYPE_fLaC = 0x664c6143;
 
   @SuppressWarnings("ConstantCaseForConstants")
+  public static final int TYPE_av3a = 0x61763361; // 'av3a' big-endian
+
+  @SuppressWarnings("ConstantCaseForConstants")
+  public static final int TYPE_a3va = 0x61337661; // 'a3va' as stored in some MP4 files
+
+  @SuppressWarnings("ConstantCaseForConstants")
   public static final int TYPE_dfLa = 0x64664c61;
 
   @SuppressWarnings("ConstantCaseForConstants")
