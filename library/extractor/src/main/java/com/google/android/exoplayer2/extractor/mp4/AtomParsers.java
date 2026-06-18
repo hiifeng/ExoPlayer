@@ -1619,6 +1619,8 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
       mimeType = MimeTypes.AUDIO_FLAC;
     } else if (atomType == Atom.TYPE_mlpa) {
       mimeType = MimeTypes.AUDIO_TRUEHD;
+    } else if (atomType == Atom.TYPE_av3a || atomType == Atom.TYPE_a3va) {
+      mimeType = MimeTypes.AUDIO_AV3A;
     }
 
     @Nullable List<byte[]> initializationData = null;
