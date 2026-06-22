@@ -261,7 +261,10 @@ public final class Av3aReader implements ElementaryStreamReader {
     }
 
     // 把已读的 header 字节输出给下游解码器（解码器需要完整帧，含 header）
-    output.sampleData(new ParsableByteArray(headerBuf, HEADER_SIZE), HEADER_SIZE);
+    // 只有在 timeUs 有效时才写入，与 readFrameRemainder 的策略保持一致
+    if (timeUs != C.TIME_UNSET) {
+      output.sampleData(new ParsableByteArray(headerBuf, HEADER_SIZE), HEADER_SIZE);
+    }
     state = STATE_READING_FRAME;
   }
 
@@ -270,7 +273,13 @@ public final class Av3aReader implements ElementaryStreamReader {
    */
   private void readFrameRemainder(ParsableByteArray source) {
     int toRead = Math.min(source.bytesLeft(), frameSize - frameBytesRead);
-    output.sampleData(source, toRead);
+    if (timeUs != C.TIME_UNSET) {
+      output.sampleData(source, toRead);
+    } else {
+      // timeUs 未知时跳过帧体字节，不写入 sampleData，
+      // 避免产生没有对应 sampleMetadata 的孤儿数据
+      source.skipBytes(toRead);
+    }
     frameBytesRead += toRead;
 
     if (frameBytesRead < frameSize) {
