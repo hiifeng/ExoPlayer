@@ -123,6 +123,8 @@ public final class Av3aReader implements ElementaryStreamReader {
 
   // ── 实例字段 ─────────────────────────────────────────────────────────────────
   @Nullable private final String language;
+  private final @C.RoleFlags int roleFlags;
+  @Nullable private String formatId;
   @Nullable private TrackOutput output;
 
   private int  state          = STATE_FINDING_HEADER;
@@ -136,8 +138,9 @@ public final class Av3aReader implements ElementaryStreamReader {
 
   private final byte[] headerBuf = new byte[HEADER_SIZE];
 
-  public Av3aReader(@Nullable String language) {
-    this.language = language;
+  public Av3aReader(@Nullable String language, @C.RoleFlags int roleFlags) {
+    this.language  = language;
+    this.roleFlags = roleFlags;
   }
 
   // ── ElementaryStreamReader 接口 ──────────────────────────────────────────────
@@ -154,14 +157,13 @@ public final class Av3aReader implements ElementaryStreamReader {
   public void createTracks(ExtractorOutput extractorOutput,
       PesReader.TrackIdGenerator idGenerator) {
     idGenerator.generateNewId();
+    formatId = idGenerator.getFormatId();
     output = extractorOutput.track(idGenerator.getTrackId(), C.TRACK_TYPE_AUDIO);
   }
 
   @Override
   public void packetStarted(long pesTimeUs, @TsPayloadReader.Flags int flags) {
-    if (pesTimeUs != C.TIME_UNSET) {
-      timeUs = pesTimeUs;
-    }
+    timeUs = pesTimeUs;
   }
 
   @Override
@@ -245,12 +247,15 @@ public final class Av3aReader implements ElementaryStreamReader {
     if (!hasOutputFormat) {
       frameDurationUs = (FRAME_SAMPLES * 1_000_000L) / h.sampleRate;
       output.format(new Format.Builder()
+          .setId(formatId)
           .setSampleMimeType(MimeTypes.AUDIO_AV3A)
+          .setMaxInputSize(4096 * 64)
           .setChannelCount(h.channelCount)
           .setSampleRate(h.sampleRate)
           .setAverageBitrate(h.totalBitrate)
           .setPeakBitrate(h.totalBitrate)
           .setLanguage(language)
+          .setRoleFlags(roleFlags)
           .build());
       hasOutputFormat = true;
     }
@@ -353,15 +358,15 @@ public final class Av3aReader implements ElementaryStreamReader {
 
     if (codingProfile == 0) {
       // ── Channel-based ──
-      int chIdx       = r.read(7);
-      r.skip(2);                     // resolution
-      int bitrateIdx  = r.read(4);
-      // r.skip(8);                  // crc2（不需要读了）
+      int chIdx      = r.read(7);
+      // resolution 和 bitrateIndex 在可变字段之后统一读取（见下方）
 
       if (chIdx >= CHANNEL_COUNT_BY_IDX.length) return null;
       channelCount = CHANNEL_COUNT_BY_IDX[chIdx];
       if (channelCount == 0) return null;
 
+      r.skip(2);                     // resolution（所有 profile 统一在此读取）
+      int bitrateIdx = r.read(4);
       int[] btable = BITRATE_TABLE_BY_IDX[chIdx];
       if (bitrateIdx >= btable.length) return null;
       totalBitrate = btable[bitrateIdx];
@@ -370,40 +375,43 @@ public final class Av3aReader implements ElementaryStreamReader {
       // ── Object-based ──
       int soundBedType = r.read(2);
       if (soundBedType == 0) {
-        int objCh             = r.read(7) + 1;   // object_channel_number
-        int bitrateIdxPerCh   = r.read(4);
+        int objCh           = r.read(7) + 1;   // object_channel_number
+        int bitrateIdxPerCh = r.read(4);
         channelCount = objCh;
         if (bitrateIdxPerCh < BITRATE_TABLE_BY_IDX[0].length) {
           totalBitrate = objCh * BITRATE_TABLE_BY_IDX[0][bitrateIdxPerCh];
         }
       } else if (soundBedType == 1) {
-        int chIdx             = r.read(7);
-        int bitrateIdx        = r.read(4);
-        int objCh             = r.read(7) + 1;
-        int bitrateIdxPerCh   = r.read(4);
+        int chIdx           = r.read(7);
+        int bitrateIdx      = r.read(4);
+        int objCh           = r.read(7) + 1;
+        int bitrateIdxPerCh = r.read(4);
         int bedCount = (chIdx < CHANNEL_COUNT_BY_IDX.length)
             ? CHANNEL_COUNT_BY_IDX[chIdx] : 0;
         channelCount = bedCount + objCh;
+        // 参考实现：bed码率 * objCh * 每通道obj码率（三项相乘）
         int bedBitrate = (chIdx < BITRATE_TABLE_BY_IDX.length
             && bitrateIdx < BITRATE_TABLE_BY_IDX[chIdx].length)
             ? BITRATE_TABLE_BY_IDX[chIdx][bitrateIdx] : 0;
-        int objBitrate = (bitrateIdxPerCh < BITRATE_TABLE_BY_IDX[0].length)
-            ? objCh * BITRATE_TABLE_BY_IDX[0][bitrateIdxPerCh] : 0;
-        totalBitrate = bedBitrate + objBitrate;
+        int objBitratePerCh = (bitrateIdxPerCh < BITRATE_TABLE_BY_IDX[0].length)
+            ? BITRATE_TABLE_BY_IDX[0][bitrateIdxPerCh] : 0;
+        totalBitrate = bedBitrate * objCh * objBitratePerCh;
       } else {
         return null; // soundBedType 2/3 暂不支持
       }
+      r.skip(2);                     // resolution（coding_profile=1 也需要读）
+      // coding_profile=1 没有 bitrateIndex
 
     } else if (codingProfile == 2) {
       // ── HOA ──
-      int hoaOrder    = r.read(4) + 1;  // 存储值为 order-1
-      r.skip(2);                        // resolution
-      int bitrateIdx  = r.read(4);
-      // r.skip(8);                     // crc2
+      int hoaOrder   = r.read(4) + 1;  // 存储值为 order-1
 
       // HOA channel_number_index: order1=11, order2=12, order3=13
       int hoaChIdx = 10 + hoaOrder;     // order1->11, order2->12, order3->13
       channelCount = (hoaOrder + 1) * (hoaOrder + 1);
+
+      r.skip(2);                        // resolution（所有 profile 统一在此读取）
+      int bitrateIdx = r.read(4);
       if (hoaChIdx < BITRATE_TABLE_BY_IDX.length
           && bitrateIdx < BITRATE_TABLE_BY_IDX[hoaChIdx].length) {
         totalBitrate = BITRATE_TABLE_BY_IDX[hoaChIdx][bitrateIdx];
