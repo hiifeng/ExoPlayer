@@ -121,11 +121,6 @@ public final class TsExtractor implements Extractor {
   private static final long E_AC3_FORMAT_IDENTIFIER = 0x45414333;
   private static final long AC4_FORMAT_IDENTIFIER = 0x41432d34;
   private static final long HEVC_FORMAT_IDENTIFIER = 0x48455643;
-  // AV3A 格式标识符（广电将 AV3A 伪装为 0x06 私有数据流，真实身份藏在注册描述符中）
-  // 0x61337661 = 'a3va'（字节倒序，广电实际使用）
-  // 0x61763361 = 'av3a'（标准格式，兼容处理）
-  private static final long AV3A_FORMAT_IDENTIFIER_1 = 0x61337661L; // 'a3va'
-  private static final long AV3A_FORMAT_IDENTIFIER_2 = 0x61763361L; // 'av3a'
 
   private static final int BUFFER_SIZE = TS_PACKET_SIZE * 50;
   private static final int SNIFF_TS_PACKET_COUNT = 5;
@@ -746,11 +741,6 @@ public final class TsExtractor implements Extractor {
             streamType = TS_STREAM_TYPE_AC4;
           } else if (formatIdentifier == HEVC_FORMAT_IDENTIFIER) {
             streamType = TS_STREAM_TYPE_H265;
-          } else if (formatIdentifier == AV3A_FORMAT_IDENTIFIER_1
-                  || formatIdentifier == AV3A_FORMAT_IDENTIFIER_2) {
-            // 广电将 AV3A 伪装为 0x06 私有数据流，通过注册描述符中的 formatIdentifier 识别真实身份
-            // 兼容 'a3va'(0x61337661) 和 'av3a'(0x61763361) 两种格式标识符
-            streamType = TS_STREAM_TYPE_AV3A;
           }
         } else if (descriptorTag == TS_PMT_DESC_AC3) { // AC-3_descriptor in DVB (ETSI EN 300 468)
           streamType = TS_STREAM_TYPE_AC3;
