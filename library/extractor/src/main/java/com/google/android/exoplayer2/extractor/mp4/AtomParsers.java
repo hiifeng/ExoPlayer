@@ -1088,7 +1088,9 @@ import org.checkerframework.checker.nullness.compatqual.NullableType;
           || childAtomType == Atom.TYPE_alaw
           || childAtomType == Atom.TYPE_ulaw
           || childAtomType == Atom.TYPE_Opus
-          || childAtomType == Atom.TYPE_fLaC) {
+          || childAtomType == Atom.TYPE_fLaC
+          || childAtomType == Atom.TYPE_av3a
+          || childAtomType == Atom.TYPE_a3va) {
         parseAudioSampleEntry(
             stsd,
             childAtomType,
