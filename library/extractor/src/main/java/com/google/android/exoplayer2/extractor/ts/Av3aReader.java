@@ -395,7 +395,7 @@ public final class Av3aReader implements ElementaryStreamReader {
             ? BITRATE_TABLE_BY_IDX[chIdx][bitrateIdx] : 0;
         int objBitratePerCh = (bitrateIdxPerCh < BITRATE_TABLE_BY_IDX[0].length)
             ? BITRATE_TABLE_BY_IDX[0][bitrateIdxPerCh] : 0;
-        totalBitrate = bedBitrate * objCh * objBitratePerCh;
+        totalBitrate = (int) Math.min((long) bedBitrate * objCh * objBitratePerCh, Integer.MAX_VALUE);
       } else {
         return null; // soundBedType 2/3 暂不支持
       }
