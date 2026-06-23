@@ -83,9 +83,9 @@ public final class Av3aReader implements ElementaryStreamReader {
      10,  // 8: 5.1.4
      10,  // 9: 7.1.2
      12,  // 10: 7.1.4
-      4,  // 11: HOA order1  (2+1)^2 = 4
-      9,  // 12: HOA order2  (3+1)^2 = ... actually (hoaOrder+1)^2
-     16,  // 13: HOA order3  (4+1)^2 ... simplified
+      4,  // 11: HOA order1  (1+1)^2 = 4
+      9,  // 12: HOA order2  (2+1)^2 = 9
+     16,  // 13: HOA order3  (3+1)^2 = 16
   };
 
   // bitrate tables per channel_number_index (bps)
@@ -404,7 +404,9 @@ public final class Av3aReader implements ElementaryStreamReader {
             ? BITRATE_TABLE_BY_IDX[chIdx][bitrateIdx] : 0;
         int objBitratePerCh = (bitrateIdxPerCh < BITRATE_TABLE_BY_IDX[0].length)
             ? BITRATE_TABLE_BY_IDX[0][bitrateIdxPerCh] : 0;
-        totalBitrate = (int) Math.min((long) bedBitrate * objCh * objBitratePerCh, Integer.MAX_VALUE);
+        totalBitrate = (int) Math.min(
+            (long) bedBitrate + (long) objCh * objBitratePerCh,
+            Integer.MAX_VALUE);
       } else {
         return null; // soundBedType 2/3 暂不支持
       }
