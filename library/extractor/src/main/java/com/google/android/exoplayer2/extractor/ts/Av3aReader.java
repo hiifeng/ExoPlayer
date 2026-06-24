@@ -398,7 +398,7 @@ public final class Av3aReader implements ElementaryStreamReader {
         int bedCount = (chIdx < CHANNEL_COUNT_BY_IDX.length)
             ? CHANNEL_COUNT_BY_IDX[chIdx] : 0;
         channelCount = bedCount + objCh;
-        // 参考实现：bed码率 * objCh * 每通道obj码率（三项相乘）
+        // 总码率 = 床层总码率 + 对象声道数 × 每对象声道码率
         int bedBitrate = (chIdx < BITRATE_TABLE_BY_IDX.length
             && bitrateIdx < BITRATE_TABLE_BY_IDX[chIdx].length)
             ? BITRATE_TABLE_BY_IDX[chIdx][bitrateIdx] : 0;
