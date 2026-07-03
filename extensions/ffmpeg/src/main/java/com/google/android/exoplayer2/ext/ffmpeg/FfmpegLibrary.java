@@ -140,6 +140,8 @@ public final class FfmpegLibrary {
         return "dca";
       case MimeTypes.AUDIO_VORBIS:
         return "vorbis";
+      case MimeTypes.AUDIO_AV3A:
+        return "av3a";
       case MimeTypes.AUDIO_OPUS:
         return "opus";
       case MimeTypes.AUDIO_AMR_NB:
